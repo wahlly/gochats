@@ -3,7 +3,9 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"maps"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -57,7 +59,23 @@ func handleConnection(conn net.Conn) {
 			break
 		}
 		message = strings.TrimSpace(message)
-		broadcast <- fmt.Sprintf("%s: %s\n", name, message)
+
+		if message == "/exit" {
+			mutex.Lock()
+			delete(clients, conn)
+			mutex.Unlock()
+
+			broadcast <- fmt.Sprintf("%s has left chat", name)
+			conn.Close()
+			return
+		}
+
+		if message == "/active-users" {
+			users := slices.Collect(maps.Values(clients))
+			broadcast <- fmt.Sprintf("active users: %s\n", strings.Join(users, ", "))
+		} else{
+			broadcast <- fmt.Sprintf("%s: %s\n", name, message)
+		}
 	}
 
 	mutex.Lock()
@@ -70,7 +88,7 @@ func handleConnection(conn net.Conn) {
 func handleBroadcasting() {
 	for message := range broadcast {
 		mutex.Lock()
-		for conn, _ := range clients {
+		for conn := range clients {
 			conn.Write([]byte(message))
 		}
 		mutex.Unlock()
