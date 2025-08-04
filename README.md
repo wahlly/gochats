@@ -1,2 +1,2 @@
 # gochats
-Implementation of a chat server using Golang's goroutines.
+A tcp based chat server, supporting concurrent connection management using goroutines.
