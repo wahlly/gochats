@@ -25,7 +25,6 @@ func NewServer() *Server {
 }
 
 
-
 func (server *Server) HandleConnection(conn net.Conn) {
 	conn.Write([]byte("Enter your name: "))
 	reader := bufio.NewReader(conn)
