@@ -19,14 +19,14 @@ type Message struct {
 type Server struct{
 	clients map[net.Conn]string
 	msgChan chan Message
-	mutex *sync.Mutex
+	mutex *sync.RWMutex
 }
 
 func NewServer() *Server {
 	return &Server{
 		clients: make(map[net.Conn]string),
 		msgChan: make(chan Message),
-		mutex: &sync.Mutex{},
+		mutex: &sync.RWMutex{},
 	}
 }
 
@@ -85,9 +85,10 @@ func (server *Server) HandleConnection(conn net.Conn) {
 				content: fmt.Sprintf("%s: %s\n", name, msg),
 			}
 		}else if message == "/active-users" {
-			server.mutex.Lock()
+			server.mutex.RLock()
 			users := slices.Collect(maps.Values(server.clients))
-			server.mutex.Unlock()
+			server.mutex.RUnlock()
+
 			server.msgChan <- Message{
 				from: &conn,
 				content: fmt.Sprintf("active users: %s\n", strings.Join(users, ", ")),
@@ -109,16 +110,17 @@ func (server *Server) HandleConnection(conn net.Conn) {
 
 func (server *Server) MessageDispatcher() {
 	for msg := range server.msgChan {
-		server.mutex.Lock()
 		if msg.to == nil {
+			server.mutex.RLock()
 			for conn := range server.clients {
 				conn.Write([]byte(msg.content))
 			}
+			server.mutex.RUnlock()
 		} else{
 			conn := *msg.to	//recipient connection
 			conn.Write([]byte(msg.content))
 		}
-		server.mutex.Unlock()
+		
 	}
 }
 
