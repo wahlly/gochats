@@ -14,7 +14,7 @@ func main() {
 	defer ln.Close()
 
 	server := NewServer()
-	go server.HandleBroadcasting()
+	go server.MessageDispatcher()
 	fmt.Println("Server is running on port :8070")
 
 	for {

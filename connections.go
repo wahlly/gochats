@@ -10,16 +10,22 @@ import (
 	"sync"
 )
 
+type Message struct {
+	from *net.Conn
+	to *net.Conn
+	content string
+}
+
 type Server struct{
 	clients map[net.Conn]string
-	broadcast chan string
+	msgChan chan Message
 	mutex *sync.Mutex
 }
 
 func NewServer() *Server {
 	return &Server{
 		clients: make(map[net.Conn]string),
-		broadcast: make(chan string),
+		msgChan: make(chan Message),
 		mutex: &sync.Mutex{},
 	}
 }
@@ -38,7 +44,7 @@ func (server *Server) HandleConnection(conn net.Conn) {
 	server.mutex.Lock()
 	server.clients[conn] = name
 	server.mutex.Unlock()
-	server.broadcast <- fmt.Sprintf("%s has joined the chat\n", name)
+	server.msgChan <- Message{content: fmt.Sprintf("%s has joined the chat\n", name)}
 
 	for {
 		message, err := reader.ReadString('\n')
@@ -49,54 +55,68 @@ func (server *Server) HandleConnection(conn net.Conn) {
 		message = strings.TrimSpace(message)
 
 		if message == "/exit" {
-			server.mutex.Lock()
-			delete(server.clients, conn)
-			server.mutex.Unlock()
-
-			server.broadcast <- fmt.Sprintf("%s has left chat", name)
-			conn.Close()
-			return
+			break
 		}
 
 		if strings.HasPrefix(message, "/msg "){
 			msgParts := strings.SplitN(message, " ", 3)
 			if len(msgParts) < 3{
-				fmt.Println("private messaging follows the format, '/msg <recipientName> <message>")
-				break
+				server.msgChan <- Message{
+					to: &conn,
+					content: "private messaging follows the format, '/msg <recipientName> <message>\n",
+				}
+				continue
 			}
 
 			recipientName := msgParts[1]
 			msg := msgParts[2]
 			recipientConn := server.getUserConn(recipientName)
 			if recipientConn == nil {
-				conn.Write([]byte("user is not available"))
-				break
+				server.msgChan <- Message{
+					to: &conn,
+					content: fmt.Sprintf("user %s is not available\n", recipientName),
+				}
+				continue
 			}
 
-			recipientConn.Write([]byte(fmt.Sprintf("%s\n", msg)))
-			conn.Write([]byte(fmt.Sprintf("message sent to %s successfully\n", recipientName)))
+			server.msgChan <- Message{
+				from: &conn,
+				to: &recipientConn,
+				content: fmt.Sprintf("%s: %s\n", name, msg),
+			}
 		}else if message == "/active-users" {
 			server.mutex.Lock()
 			users := slices.Collect(maps.Values(server.clients))
 			server.mutex.Unlock()
-			server.broadcast <- fmt.Sprintf("active users: %s\n", strings.Join(users, ", "))
+			server.msgChan <- Message{
+				from: &conn,
+				content: fmt.Sprintf("active users: %s\n", strings.Join(users, ", ")),
+			}
 		} else{
-			server.broadcast <- fmt.Sprintf("%s: %s\n", name, message)
+			server.msgChan <- Message{
+				from: &conn,
+				content: fmt.Sprintf("%s: %s\n", name, message),
+			}
 		}
 	}
 
 	server.mutex.Lock()
 	delete(server.clients, conn)
 	server.mutex.Unlock()
-	server.broadcast <- fmt.Sprintf("%s has left the chat\n", name)
+	server.msgChan <- Message{content: fmt.Sprintf("%s has left the chat\n", name)}
 	conn.Close()
 }
 
-func (server *Server) HandleBroadcasting() {
-	for message := range server.broadcast {
+func (server *Server) MessageDispatcher() {
+	for msg := range server.msgChan {
 		server.mutex.Lock()
-		for conn := range server.clients {
-			conn.Write([]byte(message))
+		if msg.to == nil {
+			for conn := range server.clients {
+				conn.Write([]byte(msg.content))
+			}
+		} else{
+			conn := *msg.to	//recipient connection
+			conn.Write([]byte(msg.content))
 		}
 		server.mutex.Unlock()
 	}
