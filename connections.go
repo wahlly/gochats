@@ -70,6 +70,7 @@ func (server *Server) HandleConnection(conn net.Conn) {
 		}
 		inactivityTimer.Reset(timeoutDuration)
 		message = strings.TrimSpace(message)
+		msgTimestamp := time.Now().Format("15:04")	//message timestamp
 
 		if message == "/exit" {
 			break
@@ -80,7 +81,7 @@ func (server *Server) HandleConnection(conn net.Conn) {
 			if len(msgParts) < 3{
 				server.msgChan <- Message{
 					to: &conn,
-					content: "private messaging follows the format, '/msg <recipientName> <message>\n",
+					content: fmt.Sprintf("[%s]: private messaging follows the format, '/msg <recipientName> <message>\n", msgTimestamp),
 				}
 				continue
 			}
@@ -91,7 +92,7 @@ func (server *Server) HandleConnection(conn net.Conn) {
 			if recipientConn == nil {
 				server.msgChan <- Message{
 					to: &conn,
-					content: fmt.Sprintf("user %s is not available\n", recipientName),
+					content: fmt.Sprintf("[%s]: user %s is not available\n", msgTimestamp, recipientName),
 				}
 				continue
 			}
@@ -99,7 +100,7 @@ func (server *Server) HandleConnection(conn net.Conn) {
 			server.msgChan <- Message{
 				from: &conn,
 				to: &recipientConn,
-				content: fmt.Sprintf("%s: %s\n", name, msg),
+				content: fmt.Sprintf("[%s] %s: %s\n", msgTimestamp, name, msg),
 			}
 		}else if message == "/active-users" {
 			server.mutex.RLock()
@@ -108,12 +109,12 @@ func (server *Server) HandleConnection(conn net.Conn) {
 
 			server.msgChan <- Message{
 				from: &conn,
-				content: fmt.Sprintf("active users: %s\n", strings.Join(users, ", ")),
+				content: fmt.Sprintf("[%s] active users: %s\n", msgTimestamp, strings.Join(users, ", ")),
 			}
 		} else{
 			server.msgChan <- Message{
 				from: &conn,
-				content: fmt.Sprintf("%s: %s\n", name, message),
+				content: fmt.Sprintf("[%s] %s: %s\n", msgTimestamp, name, message),
 			}
 		}
 	}
