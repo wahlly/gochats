@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Message struct {
@@ -46,12 +47,28 @@ func (server *Server) HandleConnection(conn net.Conn) {
 	server.mutex.Unlock()
 	server.msgChan <- Message{content: fmt.Sprintf("%s has joined the chat\n", name)}
 
+	timeoutDuration := 5 * time.Minute	//allow inactivity for 5 minutes
+	inactivityTimer := time.NewTimer(timeoutDuration)
+
+	//goroutine to track inactivity timer
+	go func() {
+		<-inactivityTimer.C
+		conn.Write([]byte("you have been disconnected due to inactivity\n"))
+		server.mutex.Lock()
+		delete(server.clients, conn)
+		server.mutex.Unlock()
+
+		server.msgChan <- Message{content: fmt.Sprintf("%s has been disconnected due to inactivity.\n", name)}
+		conn.Close()
+	}()
+
 	for {
 		message, err := reader.ReadString('\n')
 		if err != nil {
 			fmt.Println("Error reading message: ", err)
 			break
 		}
+		inactivityTimer.Reset(timeoutDuration)
 		message = strings.TrimSpace(message)
 
 		if message == "/exit" {
@@ -105,6 +122,7 @@ func (server *Server) HandleConnection(conn net.Conn) {
 	delete(server.clients, conn)
 	server.mutex.Unlock()
 	server.msgChan <- Message{content: fmt.Sprintf("%s has left the chat\n", name)}
+	inactivityTimer.Stop()
 	conn.Close()
 }
 
