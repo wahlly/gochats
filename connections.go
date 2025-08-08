@@ -17,6 +17,7 @@ type Message struct {
 	content string
 }
 
+//tcp server connection struct
 type Server struct{
 	clients map[net.Conn]string
 	msgChan chan Message
@@ -42,11 +43,13 @@ func (server *Server) HandleConnection(conn net.Conn) {
 	}
 
 	name = strings.TrimSpace(name)
+	//add new connection to server clients map
 	server.mutex.Lock()
 	server.clients[conn] = name
 	server.mutex.Unlock()
 	server.msgChan <- Message{content: fmt.Sprintf("%s has joined the chat\n", name)}
 
+	//timer for client connections, to detect idle/inactive users
 	timeoutDuration := 5 * time.Minute	//allow inactivity for 5 minutes
 	inactivityTimer := time.NewTimer(timeoutDuration)
 
@@ -68,7 +71,7 @@ func (server *Server) HandleConnection(conn net.Conn) {
 			fmt.Println("Error reading message: ", err)
 			break
 		}
-		inactivityTimer.Reset(timeoutDuration)
+		inactivityTimer.Reset(timeoutDuration)	//reset inactivity timer on every new message
 		message = strings.TrimSpace(message)
 		msgTimestamp := time.Now().Format("15:04")	//message timestamp
 
@@ -76,7 +79,7 @@ func (server *Server) HandleConnection(conn net.Conn) {
 			break
 		}
 
-		if strings.HasPrefix(message, "/msg "){
+		if strings.HasPrefix(message, "/msg "){	//private messaging
 			msgParts := strings.SplitN(message, " ", 3)
 			if len(msgParts) < 3{
 				server.msgChan <- Message{
@@ -102,7 +105,7 @@ func (server *Server) HandleConnection(conn net.Conn) {
 				to: &recipientConn,
 				content: fmt.Sprintf("[%s] %s: %s\n", msgTimestamp, name, msg),
 			}
-		}else if message == "/active-users" {
+		}else if message == "/active-users" {	//broadcast list of active users
 			server.mutex.RLock()
 			users := slices.Collect(maps.Values(server.clients))
 			server.mutex.RUnlock()
@@ -111,7 +114,7 @@ func (server *Server) HandleConnection(conn net.Conn) {
 				from: &conn,
 				content: fmt.Sprintf("[%s] active users: %s\n", msgTimestamp, strings.Join(users, ", ")),
 			}
-		} else{
+		} else{	//broadcast
 			server.msgChan <- Message{
 				from: &conn,
 				content: fmt.Sprintf("[%s] %s: %s\n", msgTimestamp, name, message),
@@ -127,15 +130,16 @@ func (server *Server) HandleConnection(conn net.Conn) {
 	conn.Close()
 }
 
+//delivery of messages
 func (server *Server) MessageDispatcher() {
 	for msg := range server.msgChan {
-		if msg.to == nil {
+		if msg.to == nil {	//has no receiver, hence a general broadcast
 			server.mutex.RLock()
 			for conn := range server.clients {
 				conn.Write([]byte(msg.content))
 			}
 			server.mutex.RUnlock()
-		} else{
+		} else{	//a private message
 			conn := *msg.to	//recipient connection
 			conn.Write([]byte(msg.content))
 		}

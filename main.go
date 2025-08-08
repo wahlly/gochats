@@ -6,6 +6,7 @@ import (
 )
 
 func main() {
+	//tcp listener
 	ln, err := net.Listen("tcp", ":8070")
 	if err != nil {
 		fmt.Println("Error listening: ", err)
@@ -13,7 +14,9 @@ func main() {
 	}
 	defer ln.Close()
 
+	//server struct initialization
 	server := NewServer()
+	//handle messages sent to the message channel in another goroutine concurrently
 	go server.MessageDispatcher()
 	fmt.Println("Server is running on port :8070")
 
